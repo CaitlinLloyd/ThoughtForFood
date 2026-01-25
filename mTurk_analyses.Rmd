@@ -1,0 +1,1022 @@
+---
+title: "mTurk_Main_Analyses_updated_full_models"
+output:
+  rmarkdown::pdf_document:
+    extra_dependencies: ["float"]
+    #fig_caption: yes        
+#   includes:  
+#      in_header: preamble.tex
+header-includes:
+ \usepackage{placeins}
+ \usepackage{array}
+ \usepackage{longtable}
+ \usepackage{wrapfig}
+ \usepackage{float}
+ \floatplacement{figure}{H}
+  # \newcommand\textstyleStrongEmphasis[1]{\textbf{#1}}
+  # \makeatletter
+  # \newcommand\arraybslash{\let\\\@arraycr}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "!H", out.extra = "")
+```
+
+## add in the income and education factors (show associations with healthy/tasty ratings)
+
+```{r, include=FALSE}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(lmerTest)
+library(lme4)
+library(readxl)
+library(cowplot)
+library(data.table)
+library(readxl)
+library(matrixTests)
+library(ggpubr)
+library(rstatix)
+library(afex)
+library(emmeans)
+library(forcats)
+library(sjPlot)
+library(polycor)
+library(parameters)
+library(knitr)
+library(psych)
+library(interactions)
+library(ggrepel)
+library(car)
+library(ppcor)
+library(GGally)
+library(ggrain)
+```
+
+
+## These analyses describe the demographic characteristics associated with variation in food choice
+
+## Demographic characteristics of interest are: age, gender, cognitive restraint, bmi.
+
+
+```{r, include=FALSE}
+dat <- read.csv("~/Dropbox/mTurk/mTURK_July2025.csv")
+source("~/Dropbox/mTurk/cleanup1.R")
+dat <- subset(dat,!is.na(dat$education))
+t <- subset(t,!is.na(t$education))
+```
+
+# First, look at how the demographic factors of interest are related to each other
+```{r, results="asis", warnings=FALSE, message=FALSE, echo=FALSE}
+t <- function(x){
+val <- t.test(demo[[x]]~demo$gender)
+return(val$statistic)
+}
+
+w <- function(x){
+val <- wilcox.test(demo[[x]]~demo$gender)
+return(val$statistic)
+}
+
+demo <- single %>%
+dplyr::select(subjectId, age2, bmi, gender, s.cognitive.restraint, income,education)
+
+cont <- c("age2", "bmi", "s.cognitive.restraint")
+ord <- c("income","education")
+
+cors_cont <- demo %>% dplyr::select(cont) %>% cor(method="pearson")
+cors_ord <- demo %>% dplyr::select(cont,ord) %>% cor(method="spearman")
+cors_ord[1:3,1:3] <- cors_cont[1:3,1:3]
+cors_ord <- data.frame(cors_ord)
+cors_ord$gender <- ""
+cors_ord$gender[1:3] <- sapply(cont, t)
+cors_ord$gender[4:5] <- sapply(ord, w)
+
+#cors_ord[lower.tri(cors_ord)] <- 0
+
+print("Table to show association between different demographic characteristics")
+print(knitr::kable(cors_ord))
+```
+```{r}
+demo <- single %>%
+dplyr::select(age2, gender,bmi, s.cognitive.restraint)
+names <- c("Age (years)", "Gender","BMI kg/m^2", "Cognitive Restraint")
+for(i in 1:4){
+demo$col <- demo[[i]]
+p <- (ggplot(demo,aes(x=col)) + geom_histogram(stat="count") + xlab(names[i]))
+if(i==3){p <- (ggplot(demo,aes(x=col)) + geom_histogram(binwidth = 3) + xlab(names[i]))}
+
+if(i==1){p <- ggplot(demo,aes(x=col)) + geom_histogram(stat="count") + xlab(names[i]) + scale_x_continuous(breaks=c(0,4,7,10),labels=c("18-25","36-40","51-55","71-75"))}
+
+p <- p + theme_classic2() + ylab("Count") + theme(text = element_text(size=20))
+assign(paste0("p",i),p)
+}
+
+
+cowplot::plot_grid(p1,p2,p3,p4,nrow=1)
+```
+
+
+```{r, results="asis", warnings=FALSE, message=FALSE, echo=FALSE}
+
+set_theme(
+  title.size = 0.8, axis.textsize = 20,axis.title.size = 20,axis.ticksize.x = 20,
+  base = theme(axis.line = element_line(color="black"))
+)
+
+demo[,c("age2","s.cognitive.restraint","bmi")] <- sapply(demo[,c("age2","s.cognitive.restraint","bmi")],as.numeric)
+
+#demo[,c("income","education")] <- sapply(demo[,c("income","education")],as.factor)
+
+ordinal <- c("income","education")
+
+demo$gender <- substr(demo$gender,1,1)
+demo$gender <- as.factor(demo$gender)
+names <- c("Age (years)","bmi (kg/m2)","Gender", "Cognitive restraint (TFEQ)")
+labels_age <- c("18-25", "26-30", "31-35", "36-40", "41-45", "46-50", "51-55", "56-60", "61-65", "66-70", "71-75")
+demo$age2 <- as.numeric(demo$age2)
+
+for(i in 1:4){
+val <- paste0(names[i])
+p1 <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=5, label = val,angle=90) + 
+  theme_void()
+var1 <- colnames(cor1)[i]
+assign(paste0(var1),p1)
+
+p1 <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=5, label = val) + 
+  theme_void()
+var1 <- colnames(cor1)[i]
+assign(paste0(var1,"_h"),p1)
+
+col <- dataframe$cols[dataframe$vars==var1]
+for(i in 1:4){
+var2 <- rownames(cor1)[i]
+name_test <- paste0(var1,var2)
+if(var1==var2){
+if(class(demo[[var1]])=="numeric"){
+p <- ggplot(demo,aes_string(x=var1))+ geom_histogram(stat="count",color="gray",fill="gray") + theme_blank() + xlab("") + theme(axis.text = element_blank(),axis.line.x=element_line(colour = "black"),axis.line.y=element_line(colour = "black"), title=element_text(size=20,hjust = 0.5)) + scale_x_continuous(breaks=range(demo[[var1]]),labels=round(range(demo[[var1]]),1))}
+if(class(demo[[var1]])=="factor"){  
+p <- ggplot(demo,aes_string(x=var1))+ geom_histogram(stat="count",color="gray",fill="gray") + theme_blank() + xlab("") + theme(axis.text = element_blank(),axis.line.x=element_line(colour = "black"),axis.line.y=element_line(colour = "black"),title=element_text(size=20,hjust = 0.5))}
+if(var1 =="age2"){
+p <- ggplot(demo,aes_string(x=var1)) + geom_histogram(stat="count",color="gray",fill="gray") + scale_x_discrete(limits=labels_age) + theme_blank() + xlab("") + theme(axis.text = element_blank(),axis.line.x=element_line(colour = "black"),axis.line.y=element_line(colour = "black"), title=element_text(size=20,hjust = 0.5))}
+assign(name_test,p)
+}
+
+if(!var1==var2){
+if(class(demo[[var2]])=="numeric"){
+ybreak <- round(range(demo[[var2]],na.rm=TRUE),1)
+labs <- as.character(ybreak)}
+if(var2=="age2"){labs=c("18-25","71-75")}
+if(class(demo[[var1]])=="factor"){
+
+p <- ggplot(demo,aes_string(x=var1,y=var2))+ geom_violin(color="gray",draw_quantiles = c(0.5)) + theme_blank() + ylab("") + theme(axis.text = element_blank(),axis.line.x=element_line(colour = "black"),axis.line.y=element_line(colour = "black"),title=element_text(size=20,hjust = .5))  +
+  scale_y_continuous(breaks=ybreak,labels=labs)
+
+star1 <- ifelse(t.test(as.numeric(demo[[var2]]) ~ demo[[var1]])$p.value < 0.05,"*","")
+star2 <- ifelse(t.test(as.numeric(demo[[var2]]) ~ demo[[var1]])$p.value < 0.001,"*","")
+
+val <- paste0("t = ",round(t.test(as.numeric(demo[[var2]]) ~ demo[[var1]])$statistic,2),star1,star2)
+
+valstar <- paste0(star1,star2)
+
+if(var2 %in% ordinal){
+demo$var2 <- as.numeric(demo[[var2]])
+val <- paste0("w = ",round(wilcox.test(y=demo$var2[demo$gender=="F"], x=demo$var2[demo$gender=="M"])$statistic)) 
+star1 <- ifelse(wilcox.test(y=demo$var2[demo$gender=="F"], x=demo$var2[demo$gender=="M"])$p.value < 0.05,"*","")
+star2 <- ifelse(wilcox.test(y=demo$var2[demo$gender=="F"], x=demo$var2[demo$gender=="M"])$p.value < 0.001,"*","")
+valstar <- paste0(star1,star2)
+}
+
+p <- p + ggtitle(valstar) + theme(plot.title = element_text(hjust = 0.5))
+assign(name_test,p)
+p1 <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=20, label = val) + 
+  theme_void()
+assign(paste0(name_test,"val"),p1)
+}
+
+if(class(demo[[var1]])=="numeric" & class(demo[[var2]])=="numeric"){
+
+p <- ggplot(demo,aes_string(x=var1,y=var2),color="gray",fill="gray") + geom_smooth(method="lm",color="gray",fill="gray") + theme_blank() + xlab("") + ylab("") + theme(axis.text = element_blank(),axis.line.x=element_line(colour = "black"),axis.line.y=element_line(colour = "black"), title=element_text(size=20,hjust = 0.5)) + scale_x_continuous(breaks=range(demo[[var1]]),labels=round(range(demo[[var1]]),1)) #+scale_y_continuous(breaks=ybreak,labels=labs)
+  
+if(var1 =="age2"){
+ybreak <- round(range(demo[[var1]],na.rm=TRUE),1)
+labs <- ybreak
+p <- ggplot(demo,aes_string(x=var1,y=var2),color="gray",fill="gray") + geom_smooth(method="lm",color="gray",fill="gray")  + theme_blank() + xlab("") + ylab("") + theme(axis.text = element_blank(),axis.line.x=element_line(colour = "black"),axis.line.y=element_line(colour = "black"), title=element_text(size=20,hjust = 0.5))}
+#+ scale_x_continuous(breaks=c(1,11),labels=c("18-25","71-75"))}
+  #+scale_y_continuous(breaks=ybreak,labels=labs) + }
+  
+star1 <- ifelse(cor.test(demo[[var1]], demo[[var2]])$p.value < 0.05,"*","")
+star2 <- ifelse(cor.test(demo[[var1]], demo[[var2]])$p.value < 0.001,"*","")
+val <- paste0("r = ",round(cor(demo[[var1]], demo[[var2]],use = "pairwise.complete.obs"),2),star1,star2)
+
+valstar <- paste0(star1,star2)
+p <- p + ggtitle(valstar) + theme(plot.title = element_text(hjust = 0.5))
+
+assign(name_test,p)}
+  
+p1 <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=20, label = val) + 
+  theme_void()
+assign(paste0(name_test,"val"),p1)}
+print(paste0(var1,var2))
+}}
+
+
+
+blank <- ggplot() + theme_void()
+
+
+png("~/Dropbox/mTurk/Figure1.png", width = 1500, height = 1500)
+cowplot::plot_grid(vjust = 1, gender, gendergender, genderage2val,genderbmival,genders.cognitive.restraintval,
+                   age2, genderage2,age2age2,age2bmival,age2s.cognitive.restraintval,
+                   bmi, genderbmi,age2bmi,bmibmi,bmis.cognitive.restraintval,
+                   s.cognitive.restraint,genders.cognitive.restraint,age2s.cognitive.restraint,bmis.cognitive.restraint,s.cognitive.restraints.cognitive.restraint,
+                   blank, gender_h, age2_h, bmi_h, s.cognitive.restraint_h,
+                   nrow = 5,ncol=5,rel_widths = c(0.1,1,1,1,1), rel_heights = c(1,1,1,1,0.1))
+dev.off()
+```
+```{r}
+
+```
+
+# Look at association between choice and three main components for foods: tastiness, healthiness, umami 
+
+
+# People prefer tastier, less healthy and more savory foods 
+
+
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE}
+
+#Now binarize choice
+cat("\n\n\\newpage\n")
+dat$choice.bin <- ifelse(dat$choice.rating<5,0,1)
+dat$choice.bin <- ifelse(dat$choice.rating==5,NA,dat$choice.bin)
+
+
+##I think for plotting purposes it is nicer to do it by food
+avg <- dat %>% group_by(stimulus) %>% summarize_at(c("choice.rating","Healthiness","Tastiness","Umami"),mean,na.rm=TRUE)
+
+avg_count <- dat %>% group_by(stimulus,choice.bin) %>% dplyr::count()
+avg_count <- subset(avg_count,!is.na(avg_count$choice.bin))
+avg_count <- avg_count %>% pivot_wider("stimulus",names_from=2,values_from=3)
+avg_count$prop_choice <- avg_count$`1`/(avg_count$`1`+avg_count$`0`)
+
+avg <- merge(avg,avg_count,by="stimulus")
+
+cat("\n\n\\newpage\n")
+
+BU <- avg
+
+i <- 1
+colors <- c("#92D895","sandybrown", "plum")
+for(food in c("Healthiness","Tastiness","Umami")){
+
+##missing some foods  
+  
+labels <- c("kitkat","pizza","strawberries","lox","rice cakes","broccoli","trailmix","skittles")
+
+avg$attribute <- avg[[food]]
+avg$label <- ifelse(avg$stimulus %in% labels, avg$stimulus,"")
+col_plot <- colors[i]
+line_m <- ifelse(i<2.5,"y~x","y ~ x + I(x^2)")
+p <- (ggplot(avg, aes(x=attribute,y=prop_choice)) + geom_point(size=4,color=col_plot,fill=col_plot,alpha=0.6) + geom_smooth(method="lm",formula=line_m,size=2,color=col_plot,fill=col_plot,alpha=0.6) + scale_alpha_identity() + ylab("Proportion of selections") + xlab(food) + ylim(0,1) + xlim(-3,3) + ggtitle(food) + geom_text(aes(label=label),nudge_x = 0.1, fontface = "bold",size=6))
+ph <- p + theme_blank() + theme(axis.line.x=element_line(color="black",size=2),axis.line.y=element_line(color="black",size=2),text = element_text(size=24), plot.title = element_text(color=col_plot, size=24,face="bold",hjust = .5))
+
+assign(paste0("p",i),ph)
+i <- i+1
+}
+
+png("~/Dropbox/mTurk/Figure3.png", width = 1500, height = 500)
+cowplot::plot_grid(p1,p2,p3, nrow=1)
+dev.off()
+
+```
+# Summary of choices across all individuals for alternate (i.e., non neutral food choices), healthy choices, high/low-fat choices, RT for SC choices
+
+
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE, include=TRUE}
+# check linearity of Umami - non-linear effect adds little predictive power 
+# regressing out taste and health = linear effect of Umami on choice preference
+
+dat$Umami2 <- dat$Umami^2 
+fit2 <- glmer(choice.bin ~ Healthiness + Tastiness + Umami + (1|stimulus) + (1 + Healthiness + Tastiness + Umami | subjectId), data=dat, family="binomial", control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print("prediction of choice")
+model_parameters(fit2,keep =c("Healthiness", "Tastiness","Umami"), effects = "fixed") %>% print_md()
+
+fit1 <- glmer(choice.bin ~ Healthiness + Tastiness + Umami + Umami2 + (1|stimulus) + (1 + Healthiness + Tastiness + Umami + Umami2 | subjectId), data=dat, family="binomial", control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print("prediction of choice")
+model_parameters(fit2,keep =c("Healthiness", "Tastiness","Umami"), effects = "fixed") %>% print_md()
+
+anova(fit2,fit1)
+summary(fit2)
+
+```
+
+## RT analysis
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE, include=TRUE}
+dat$choice2 <- dat$choice.rating^2
+modRT <- lmer(choice.rt.unscale ~ choice.rating + choice2 + (1 + choice.rating + choice2|subjectId) + (1|stimulus),data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(model_parameters(modRT) %>% print_md())
+
+dat$cat_choice <- cut(dat$choice.rating, 
+                   breaks=c(seq(0,10,1)), 
+                   labels=c(as.character(seq(1,10,1))))
+
+rt <- dat %>% group_by(cat_choice) %>% summarise_at("choice.rt.unscale",mean,na.rm=TRUE)
+rt <- subset(rt,!is.na(rt$cat_choice))
+ggplot(rt,aes(x=cat_choice,y=choice.rt.unscale)) + geom_bar(stat="identity")
+
+dat$neut.Umami2 <- dat$neut.Umami^2
+dat$Umami_diff <- dat$Umami - dat$neut.Umami
+dat$Umami2_diff <- dat$Umami2 - dat$neut.Umami2
+dat$Healthiness_diff <- dat$Healthiness - dat$neut.Healthiness
+dat$Tastiness_diff <- dat$Tastiness - dat$neut.Tastiness
+
+
+modRTdiff <- lmer(choice.rt.unscale ~ Umami_diff + Umami2_diff + Tastiness_diff + Healthiness_diff + (1 + Umami_diff + Umami2_diff + Tastiness_diff + Healthiness_diff|subjectId) + (1|stimulus),data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(model_parameters(modRTdiff) %>% print_md())
+
+ggplot(dat, aes(x=choice.rating,y=choice.rt)) + geom_smooth()
+```
+
+
+# associations with tastiness, healthy, HL-fat, RT, non neutral choice per demo char
+
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE, include=TRUE}
+
+tab_means <- health_select %>% unique() %>% summarize_at(c(2:8),c(mean,sd),na.rm=TRUE)
+table_means <- data.frame()
+for(i in 1:7){
+val <- paste0(round(tab_means[i],3)," (",round(tab_means[i+7],3),")")
+row_val <- as.data.frame(c(gsub("_fn1","", colnames(tab_means[i])),val))
+row_val <- transpose(row_val)
+colnames(row_val) <- c("var","mean (SD)")
+table_means <- rbind(table_means,row_val)              
+}
+
+print(table_means)
+```
+
+
+# Generate plots using two-stage estimation (beta coefficients for each individual)
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE}
+coef <- coef(fit1)$subjectId
+coef$subjectId <- rownames(coef)
+colnames(coef) <- c( "(Intercept)","Healthiness_beta","Tastiness_beta","Umami_beta","Umami_quadratic_beta","subjectId" )
+single <- merge(single, coef,by="subjectId")
+
+```
+
+
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE}
+# These are simple associations of demo factors with influence of healthiness, tastiness, umami on choice
+
+
+cat("\n\n\\newpage\n")
+preds <- c("age2", "gender", "bmi","s.cognitive.restraint") #,"education","income")
+pred.names <- c("Age (years)","Gender","BMI (kg/m^2)","Cognitive Restraint","Cognitive Restraint x BMI")
+colour <- c("sandybrown","#92D895","plum","maroon")
+titles <- c("Tastiness","Healthiness","Umami","Umami_quadratic")
+outcomes <- c("fit.t","fit.h","fit.u")
+outcomes <- c("Tastiness_beta","Healthiness_beta","Umami_beta","Umami_quadratic_beta")
+outcome.names <- c("Tastiness Effect","Healthiness Effect","Umami Effect","Umami Effect (quadratic)")
+
+a <- c(-0.5,5)
+b <- c(-1.5,1.6)
+c <- c(-1.5,1.6)
+d <- c(-0.5,0.5)
+
+breaks_a <- seq(-0.5,5,1)
+breaks_b <- seq(-1,1.5,0.5)
+breaks_c <- seq(-1,1.5,0.5)
+breaks_d <- seq(-0.5,0.5,0.2)
+
+lims <- list(a,b,c,d)
+breaks <- list(breaks_a,breaks_b,breaks_c,breaks_d)
+
+
+TAB_lm <- data.frame()
+i <- 1
+
+#
+for(out in outcomes){
+col_out <- colour[i]
+single$out <- single[[out]]
+
+j <- 1
+
+for(pred in preds){
+single$pred <- single[[pred]]
+predname <- pred.names[j]
+title <- ""
+cat("\n\n\\newpage\n")
+
+
+p <- plot_template(single,pred = pred,out=out,xlabel = predname,col_out=col_out,ylims=lims[i][[1]],ybreaks=c(breaks[[i]]),title="",yname="Beta")
+assign(paste0("p",j),p)
+
+
+p <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=12, label = outcome.names[[i]],color=col_out,fontface =2) + 
+  theme_void()
+assign(paste0(titles[[i]],"_p"),p)
+j <- j+1
+}
+assign(paste0("plot",i),cowplot::plot_grid(p1,p2,p3,p4,nrow=1,align="vh"))
+i <- i+1
+}
+
+png("~/Dropbox/mTurk/Figure4.png", width = 1500, height = 1600)
+cowplot::plot_grid(Tastiness_p,plot1,Healthiness_p,plot2,Umami_p,plot3,Umami_quadratic_p, plot4,nrow=8,rel_heights =c(0.2,1,0.2,1,0.2,1,0.2,1))
+dev.off()
+
+```
+
+
+```{r}
+##interaction plots - median split with BMI
+
+single$bmi_cat <- ifelse(single$bmi > 26.56,1,0)
+
+a <- c(1.5,3)
+b <- c(-0.3,0.6)
+c <- c(-0.3,.6)
+d <- c(-0.1,.1)
+
+lims <- list(a,b,c,d)
+
+j <- 1
+for(out in outcomes){
+cat("\n\n\\newpage\n")
+tit=""
+col_out <- colour[j]
+single$out <- single[[out]]
+
+xbreaks <- range(round(single$s.cognitive.restraint,0),na.rm=TRUE)
+labs <- xbreaks
+
+p <- ggplot(single,aes(x=s.cognitive.restraint,y=out,group=bmi_cat,alpha=bmi_cat)) + geom_smooth(method = "lm",size=3,aes(alpha=bmi_cat),color=col_out,fill=col_out) + scale_alpha_continuous(range=c(0.3,0.8))  + ggtitle(tit) + coord_cartesian(ylim = c(lims[[j]])) + scale_x_continuous(breaks = xbreaks, labels = labs) + xlab("Cognitive Restraint") + ylab("Beta")
+p <- p + theme_blank() + theme(axis.line.x=element_line(color="black",size=1),axis.line.y=element_line(color="black",size=1),text = element_text(size=28),plot.title = element_text(color="black", size=14,face="bold",hjust = .5),legend.position = "none")
+assign(paste0("p",j),p)
+j <- j+1
+}
+png("~/Dropbox/mTurk/Figure5.png", width = 2000, height = 400)
+cowplot::plot_grid(Tastiness_p,Healthiness_p,Umami_p,Umami_quadratic_p, p1,p2,p3,p4,nrow=2,rel_heights =c(0.1,1),ncol = 4)
+dev.off()
+
+```
+
+## In fully adjusted models, all demographic characteristics are included
+# greater influence of health on choice for: higher restraint, lower bmi, older age
+# greater influence of taste for: older age, female, lower restraint
+# greater preference for savory for: lower bmi
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE}
+
+## full models
+TAB <- data.frame()
+
+cat("\n\n\\pagebreak\n")
+print("Do age, bmi, cognitive restraint and gender independently predict influence of healthiness, tastiness, umami?")
+
+
+form <- paste0("choice.bin ~  (1+ Healthiness + Tastiness + (Umami) + Umami2| subjectId) + Healthiness*s.cognitive.restraint_scale + Healthiness*bmi_scale+ Healthiness*age2_scale+Healthiness*gender_num_scale +Healthiness*income_scale + Umami*s.cognitive.restraint_scale + Umami*bmi_scale+ Umami*age2_scale+Umami*gender_num_scale  + Umami*income_scale + Tastiness*s.cognitive.restraint_scale + Tastiness*bmi_scale+ Tastiness*age2_scale+Tastiness*gender_num_scale + Tastiness*income_scale + Umami2*s.cognitive.restraint_scale + Umami2*bmi_scale+ Umami2*age2_scale+Umami2*gender_num_scale + education_scale*Umami + education_scale*Tastiness + education_scale*Healthiness + (1|stimulus)")
+mod <- glmer(form,data=dat, control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE),family="binomial")
+print(parameters::model_parameters(mod) %>% print_md())
+
+form <- paste0("choice.bin ~  (1+ Tastiness + Healthiness + (Umami) + Umami2| subjectId) + Tastiness + Healthiness + (Umami) + Umami2 + Tastiness*age2_scale+Tastiness*gender_num_scale + Tastiness*bmi_scale*s.cognitive.restraint_scale +  Tastiness*income_scale +  Tastiness*education_scale + Healthiness*age2_scale+Healthiness*gender_num_scale + Healthiness*bmi_scale*s.cognitive.restraint_scale +  Healthiness*income_scale +  Healthiness*education_scale + Umami*age2_scale+Umami*gender_num_scale + Umami*bmi_scale*s.cognitive.restraint_scale +  Umami*income_scale +  Umami*education_scale + Umami2*age2_scale+Umami2*gender_num_scale + Umami2*bmi_scale*s.cognitive.restraint_scale +  Umami2*income_scale +  Umami2*education_scale + (1|stimulus)")
+mod_int1 <- glmer(form,data=dat, control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE),family="binomial")
+print(parameters::model_parameters(mod_int1) %>% print_md())
+
+
+form <- paste0("choice.bin ~  (1+ Healthiness + Tastiness + (Umami) | subjectId) + Healthiness*s.cognitive.restraint_scale*bmi_scale+ Healthiness*age2_scale+Healthiness*gender_num_scale +Healthiness*income_scale + Healthiness*education_scale+ Umami*s.cognitive.restraint_scale*bmi_scale+ Umami*age2_scale+Umami*gender_num_scale  + Umami*income_scale + Umami*education_scale + Tastiness*s.cognitive.restraint_scale*bmi_scale+ Tastiness*age2_scale+Tastiness*gender_num_scale + Tastiness*income_scale + Tastiness*education_scale + (1|stimulus)")
+mod_int <- glmer(form,data=dat, control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE),family="binomial")
+print(parameters::model_parameters(mod_int) %>% print_md())
+
+form <- paste0("choice.bin ~  (1+ Healthiness | subjectId) + Healthiness*s.cognitive.restraint_scale + Healthiness*bmi_scale+ Healthiness*age2_scale+Healthiness*gender_num_scale +Healthiness*income_scale  + Healthiness*education_scale + (1|stimulus)")
+mod1 <- glmer(form,data=dat, control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(parameters::model_parameters(mod) %>% print_md())
+
+form <- paste0("choice.bin ~  (1+ Tastiness| subjectId) + Tastiness*s.cognitive.restraint_scale + Tastiness*bmi_scale+ Tastiness*age2_scale+Tastiness*gender_num_scale +Tastiness*income_scale  + Tastiness*education_scale+  (1|stimulus)")
+mod2 <- glmer(form,data=dat, control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(parameters::model_parameters(mod) %>% print_md())
+
+form <- paste0("choice.bin ~  (1+ Umami| subjectId) + Umami*s.cognitive.restraint_scale + Umami*bmi_scale+ Umami*age2_scale+Umami*gender_num_scale +Umami*income_scale  + Umami*education_scale+ (1|stimulus)")
+mod3 <- glmer(form,data=dat, control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(parameters::model_parameters(mod) %>% print_md())
+
+
+```
+
+```{r, echo=FALSE,results="asis", warnings=FALSE, message=FALSE, include=TRUE}
+# check linearity of Umami - non-linear effect adds little predictive power 
+# regressing out taste and health = linear effect of Umami on choice preference
+
+fit_rt <- lmer(choice.rt.unscale ~ Healthiness + Tastiness + Umami + (1|stimulus) + (1 + Healthiness + Tastiness + Umami | subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print("prediction of choice")
+model_parameters(fit_rt,keep =c("Healthiness", "Tastiness","Umami"), effects = "fixed") %>% print_md()
+
+dat$diff_taste <- dat$Tastiness - dat$neut.Tastiness
+dat$diff_health <- dat$Healthiness - dat$neut.Healthiness
+dat$diff_umami <- dat$Umami - dat$neut.Umami
+
+fit_rt_diff <- lmer(choice.rt.unscale ~ diff_health + diff_taste + diff_umami + (1|stimulus) + (1 + diff_health + diff_taste + diff_umami | subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print("prediction of choice")
+model_parameters(fit_rt_diff,keep =c("Healthiness", "Tastiness","Umami"), effects = "fixed") %>% print_md()
+
+ggplot(dat,aes(x=diff_taste,y=choice.rt.unscale)) + geom_smooth(color="sandybrown") + geom_smooth(data=dat,aes(x=diff_health,y=choice.rt.unscale),color="#92D895") + geom_smooth(data=dat,aes(x=diff_umami,y=choice.rt.unscale),color="plum")
+
+
+fit_rt_c <- lmer(choice.rt.unscale ~ choice.rating + choice2 + (1|stimulus) + (1 + choice.rating +choice2 | subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print("prediction of choice")
+model_parameters(fit_rt_c,effects = "fixed") %>% print_md()
+
+
+
+```
+
+# Model with BMI*restraint has improved fit
+```{r echo=FALSE, message=FALSE, results="asis", warnings=FALSE}
+
+print("Maximally adjusted models with interaction")
+
+
+form <- paste0("choice.bin ~  (1+ Healthiness + Tastiness + (Umami )| subjectId) + Healthiness*age2_scale+Healthiness*gender_num_scale + Healthiness*income_scale +  Tastiness*income_scale  +  Tastiness*education_scale + Healthiness*education_scale + Umami*education_scale +
+Umami*income_scale  + Umami*age2_scale+Umami*gender_num_scale + Tastiness*s.cognitive.restraint_scale*bmi_scale + Umami*s.cognitive.restraint_scale*bmi_scale+ Tastiness*age2_scale+Tastiness*gender_num_scale  +  Healthiness*s.cognitive.restraint_scale*bmi_scale + (1|stimulus)")
+
+mod_full_int <- glmer(form,data=dat, control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(parameters::model_parameters(mod_full_int) %>% print_md())
+
+
+# best fit is with cog restraint and bmi interaction only
+print(anova(mod,mod_full_int))
+```
+
+```{r}
+cat("\n\n\\newpage\n")
+preds <- c("age2", "gender","bmi", "s.cognitive.restraint") #,"education","income")
+pred.names <- c("Age","Gender","BMI","Cognitive Restraint")
+
+titles <- c("Healthy Choice Proportion")
+outcomes <- c("healthy.choice.prop")
+
+i <- 1
+for(pred in preds){
+single$pred <- single[[pred]]
+xlabel <- pred.names[i]
+
+title <- ""
+ylims=c(0,1)
+ybreaks=c(0,.25,.50,.75,1.00)
+ylabels=c("0",".25",".50",".75","1")
+yname="Healthy Choice Proportion"
+if(i ==1){tit=title}
+else{tit=""}
+cat("\n\n\\newpage\n")
+
+out <- single$healthy.choice.prop
+
+p <- plot_template(single,pred = pred,out=out,xlabel = xlabel,col_out="#FDD262",ylims=ylims,ybreaks=ybreaks,title=title,yname=yname)
+assign(paste0("p",i),p)
+i <- i+1
+}
+
+png("~/Dropbox/mTurk/Figure6.png", width = 2000, height = 600)
+cowplot::plot_grid(p1,p2,p3,p4,nrow=1,align="vh")
+dev.off()
+```
+
+
+```{r}
+print("full model - healthy choices")
+form <- paste0("healthy.choice.prop ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+```
+
+## How does number of self-control trials vary with variables of interest?
+# Males  = greater number of SC trials
+# Greater restraint  = fewer SC trials
+```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE}
+print("full model - predict number of sc trials")
+form <- paste0("n.sctrial_fac ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+print("full model to predict self-control")
+form <- paste0("sc.rat.factor ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale + n.sctrial_fac")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+form <- paste0("sc.rat.factor ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale + n.sctrial_fac")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+form <- paste0("sc.approach.prop ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale + sc.approach.n")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+form <- paste0("sc.avoid.prop ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale + sc.avoid.n")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+```
+
+
+```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE}
+sc <- single_f %>% 
+  dplyr::select("no.sc.rt","sc.success.rt","sc.fail.rt") %>%  
+  summarise_all(list(
+    mean = ~mean(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE),
+    count = ~sum(!is.na(.)),
+    se = ~sd(., na.rm = TRUE) / sqrt(sum(!is.na(.)))
+  )) %>%
+  pivot_longer(everything(), names_to = c("variable", "statistic"), names_sep = "_")  %>%
+  pivot_wider(names_from = statistic, values_from = value)
+ggplot(sc,aes(x=variable,y=mean)) + geom_bar(stat="identity")
+```
+
+```{r}
+cat("\n\n\\newpage\n")
+preds <- c("age2","gender", "bmi", "s.cognitive.restraint") #,"education","income")
+pred.names <- c("Age","Gender","BMI","Cognitive Restraint")
+colour <- c("darkblue","#85D4E3")
+titles <- c("Number of Conflict Trials","Self-Control Success")
+
+outcomes <- c("n.sctrial_fac","sc.rat.factor")
+
+
+i <- 1
+for(out in outcomes){
+j <- 1
+col_out <- colour[i]
+yname <- titles[i]
+for(pred in preds){
+single$pred <- single[[pred]]
+xlabel <- pred.names[j]  
+title <-""
+
+if(i==1){ylims=c(0,40)}else{ylims=c(0,1)}
+if(i==1){ybreaks=c(0,10,20,30,40);ylabels=c("0","10","20","30","40")}else{ybreaks=c(0,.25,.50,.75,1.00);ylabels=c("0",".25",".50",".75","1")}
+
+cat("\n\n\\newpage\n")
+
+single$out <- single[[out]]
+p <- plot_template(single,pred = pred,out=out,xlabel = xlabel,col_out=col_out,ylims=ylims,ybreaks=ybreaks,title=title,yname=yname)
+assign(paste0("p",j),p)
+
+p <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=12, label = titles[[i]],color=col_out,fontface =2) + 
+  theme_void()
+assign(paste0(titles[[i]],"_p"),p)
+
+j <- j+1
+
+
+}
+assign(paste0("plot",i),cowplot::plot_grid(p1,p2,p3,p4,nrow=1,align="vh"))
+i <- i+1
+}
+
+
+png("~/Dropbox/mTurk/Figure7.png", width = 1500, height = 1000)
+cowplot::plot_grid(`Number of Conflict Trials_p`,plot1,`Self-Control Success_p`,plot2,nrow=4,rel_heights=c(0.2,1,0.2,1))
+dev.off()
+```
+
+
+```{r, echo=FALSE, results="asis", warnings=FALSE, message=FALSE}
+i <- 1
+colors <- c("#92D895", "plum")
+for(food in c("Healthiness","Umami")){
+
+labels <- c("kitkat","pizza","strawberries","lox","rice cakes","broccoli","trailmix","skittles")
+
+avg$attribute <- avg[[food]]
+
+avg$label <- ifelse(avg$stimulus %in% labels, avg$stimulus,"")
+
+col_plot <- colors[i]
+line_m <- ifelse(i<1.5,"y~x","y ~ x + I(x^2)")
+p <- (ggplot(avg, aes(x=attribute,y=Tastiness)) + geom_point(size=4,color=col_plot,fill=col_plot,alpha=0.6) + geom_smooth(method="lm",formula=line_m,size=2,color=col_plot,fill=col_plot,alpha=0.6) + scale_alpha_identity() + ylab("Tastiness") + xlab(food) + ylim(-0.6,1) + xlim(-2,2) + ggtitle(food) + geom_text(aes(label=label), fontface = "bold"))
+ph <- p + theme_blank() + theme(axis.line.x=element_line(color="black",size=2),axis.line.y=element_line(color="black",size=2),text = element_text(size=16), plot.title = element_text(color=col_plot, size=24,face="bold",hjust = .5))
+
+assign(paste0("p",i),ph)
+i <- i+1
+}
+
+cowplot::plot_grid(p1,p2,nrow=1)
+
+
+avg <- dat %>% group_by(stimulus) %>% summarize_at(c("choice.rating","Healthiness","Tastiness","Umami"),mean,na.rm=TRUE)
+avg$label <- ifelse(avg$stimulus %in% labels, avg$stimulus,"")
+print("here is plot of tastiness residuals on healthiness")
+mod <- lm(Tastiness ~ Umami,avg)
+avg$res_tu <- resid(mod)
+p <- (ggplot(avg, aes(x=Umami,y=res_tu)) + geom_point(size=3,color="bisque4",fill="bisque4",alpha=0.4) + geom_smooth(method="lm",formula="y ~ x + I(x^2)", size=2,color="bisque4",fill="bisque4",alpha=0.4) + geom_text(aes(label=label)))
+print(p + theme_blank() + theme(axis.line.x=element_line(color="black",size=2),axis.line.y=element_line(color="black",size=2),text = element_text(size=16), plot.title = element_text(color=col_plot, size=24,face="bold",hjust = .5))
+)
+
+```
+
+```{r, echo=FALSE, results="asis", warnings=FALSE, message=FALSE,fig.show='hold'}
+dat$Umami2 <- dat$Umami^2
+fit_th_quad <- lmer(Tastiness ~ Healthiness +  Umami + Umami2 + (1|stimulus) + (1 + Healthiness +  Umami + Umami2|subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+summary(fit_th_quad)
+model_parameters(fit_th_quad) %>% print()
+
+
+fit_th <- lmer(Tastiness ~ Healthiness +  Umami  + (1|stimulus) + (1 + Healthiness +  Umami |subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+coef_th <- coef(fit_th_quad)$subjectId
+coef_th$subjectId <- rownames(coef_th)
+colnames(coef_th) <- c( "Intercept_taste","Health_taste_beta","Umami_taste_beta","Umami_taste_quadratic_beta","subjectId" )
+single <- merge(single, coef_th,by="subjectId")
+cat("\n\n\\newpage\n")
+```
+
+```{r}
+cat("\n\n\\newpage\n")
+
+print("Maximally adjusted")
+form <- paste0("Tastiness ~  (1 + Healthiness + Umami + Umami2 | subjectId) + Healthiness*age2_scale+Healthiness*gender_num_scale + Healthiness*income_scale + Healthiness*education_scale  + Umami*income_scale + Umami*education_scale + Umami*age2_scale+Umami*gender_num_scale +   Umami*s.cognitive.restraint_scale + Umami*bmi_scale+  Healthiness*s.cognitive.restraint_scale + Healthiness*bmi_scale + Umami2*income_scale + Umami2*education_scale + Umami2*age2_scale+Umami2*gender_num_scale + Umami2*s.cognitive.restraint_scale + Umami2*bmi_scale +  (1|stimulus)")
+mod_tuh <- lmer(form,data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(parameters::model_parameters(mod_tuh) %>% print_md())
+
+```
+
+```{r}
+cat("\n\n\\newpage\n")
+preds <- c("age2", "gender","bmi","s.cognitive.restraint") #,"education","income")
+pred.names <- c("Age","Gender","BMI","Cognitive Restraint")
+colour <- c("#92D895","plum","maroon")
+titles <- c("Healthiness","Umami","Umami2")
+
+outcomes <- c("Health_taste_beta","Umami_taste_beta","Umami_taste_quadratic_beta")
+outcome_names <- c("Healthiness Effect","Umami Effect (linear)","Umami Effect (quadratic)")
+
+lims <- c(-1,1)
+
+ybreaks=c(-1.0,-0.5,0.0,0.5,1.0)
+ylabels=c("-1.0","-0.5","0","0.5","1.0")
+
+ybreaks_u=c(-0.6,-0.3,0.0,0.3,0.6)
+lims_u <- c(-0.6,0.6)
+ylabels_u=c("-0.75","-0.25","0","0.25","0.75")
+
+i <- 1
+for(out in outcomes){
+if(i > 1) {ybreaks <- ybreaks_u; lims <- lims_u}
+col_out <- colour[i]
+single$out <- single[[out]]
+j <- 1
+title <- ""
+
+cat("\n\n\\newpage\n")
+for(pred in preds){
+single$pred <- single[[pred]]
+predname <- pred.names[j]
+
+p <- plot_template(single,pred = pred,out=out,xlabel = predname,col_out=col_out,ylims=lims,ybreaks=ybreaks,title=title,yname="Beta")
+assign(paste0("p",j),p)
+
+
+
+p <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=12, label = outcome_names[[i]],color=col_out,fontface =2) + 
+  theme_void()
+assign(paste0(titles[[i]],"_p"),p)
+j <- j+1
+
+}
+assign(paste0("plot",i),cowplot::plot_grid(p1,p2,p3,p4,nrow=1))
+i <- i+1
+}
+
+
+png("~/Dropbox/mTurk/Figure9.png", width = 1500, height = 1200)
+cowplot::plot_grid(Healthiness_p,plot1,Umami_p,plot2,Umami2_p,plot3,nrow=6,rel_heights =c(0.2,1,0.2,1,0.2,1))
+dev.off()
+```
+
+
+
+# here looking at hXt correlation and SC, with selection of healthier foods, high-fat foods, low-fat foods, influence of health on choice, and SC RTs
+```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE}
+
+form <- "healthy.choice.prop ~ scale(Health_taste_beta,center=TRUE) + scale(sc.rat.factor,center=TRUE)"
+mod <- lm(form, single)
+cat("\n\n\\newpage\n")
+print(paste0(out, " on ",var))
+print(model_parameters(mod) %>% print_md())
+
+form <- "healthy.choice.prop ~ scale(Umami_taste_beta,center=TRUE)" # #scale(sc.rat.factor,center=TRUE)
+mod <- lm(form, single)
+cat("\n\n\\newpage\n")
+print(paste0(out, " on ",var))
+print(model_parameters(mod) %>% print_md())
+
+form <- "healthy.choice.prop ~ scale(Umami_taste_quadratic_beta,center=TRUE) + scale(Umami_taste_beta,center=TRUE) +  scale(Health_taste_beta,center=TRUE) + scale(sc.rat.factor,center=TRUE)"
+mod <- lm(form, single)
+cat("\n\n\\newpage\n")
+print(paste0(out, " on ",var))
+print(model_parameters(mod) %>% print_md())
+
+form <- "healthy.choice.prop ~ scale(Umami_taste_quadratic_beta,center=TRUE) + scale(Umami_taste_beta,center=TRUE)"
+mod <- lm(form, single)
+cat("\n\n\\newpage\n")
+print(paste0(out, " on ",var))
+print(model_parameters(mod) %>% print_md())
+
+cor.test(single$sc.rat.factor,single$Health_taste_beta)
+```
+
+```{r}
+
+xbreaks <- range(round(single$sc.rat.factor,0),na.rm=TRUE)
+labs <- xbreaks
+j <- 3
+ylims=c(0,1)
+ybreaks=c(0,.25,.50,.75,1.00)
+ylabels=c("0",".25",".50",".75","1")
+
+p1 <- plot_template(single,"sc.rat.factor","healthy.choice.prop",col_out = "#FDD262",ylims = ylims,ybreaks = ybreaks,yname = "Proportion of healthy choices",xlabel = "Self-Control Success")
+
+p2 <- plot_template(single,"Health_taste_beta","healthy.choice.prop",col_out = "#FDD262",ylims = ylims,ybreaks = ybreaks,yname = "Proportion of healthy choices",xlabel = "Healthiness-Tastiness Beta")
+
+png("~/Dropbox/mTurk/Figure10.png", width = 750, height = 400)
+cowplot::plot_grid(p1,p2,nrow=1)
+dev.off()
+
+plot_template(single,"sc.rat.factor","Health_taste_beta",col_out = "#FDD262",ylims = ylims,ybreaks = ybreaks,yname = "Healthiness-Tastiness Beta",xlabel = "Self-Control Success")
+
+```
+
+## RT analysis
+
+## what happens to RT on successful vs unsuccessful self-control trials
+## largely effects of cognitive restraint - faster to make healthier choices and to use SC (relative to no SC)
+```{r echo=FALSE, message=FALSE, results="asis", warnings=FALSE}
+cat("\n\n\\newpage\n")
+print("Maximally adjusted models")
+
+
+## here is regular RT model - compare SC RT and no SC RT over demographic groups
+no_sc <- single[,c("subjectId","rt_no_sc","bmi_scale","gender_num_scale", "age2_scale", "s.cognitive.restraint_scale", "income_scale","education_scale")]
+sc <- single[,c("subjectId","rt_sc","bmi_scale","gender_num_scale", "age2_scale", "s.cognitive.restraint_scale","income_scale","education_scale")]
+colnames(sc)[2] <- "rt"
+colnames(no_sc)[2] <- "rt"
+sc$trial <- "sc"
+no_sc$trial <- "no_sc"
+
+SC_RT <- rbind(sc,no_sc)
+modRT <- lmer(rt ~ trial*bmi_scale + trial*s.cognitive.restraint_scale + trial*age2_scale + trial*gender_num_scale + trial+income_scale + trial*education_scale + (1|subjectId),data=SC_RT, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(model_parameters(modRT) %>% print_md())
+
+
+modRT <- lmer(rt ~ trial*bmi_scale + trial*s.cognitive.restraint_scale*bmi_scale + trial*age2_scale + trial*gender_num_scale + trial+income_scale + trial*education_scale + (1|subjectId),data=SC_RT, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(model_parameters(modRT) %>% print_md())
+
+
+single$diff <- (single$rt_sc - single$rt_no_sc)/1000
+i <- 1
+for(pred in preds){
+single$pred <- single[[pred]]
+predname <- pred.names[i]
+single$out <- single$diff
+p <- plot_template(dataset = single,pred = pred,out="diff",col_out = "bisque",yname = "Effect of self-control on RT (s)",xlabel = predname,ylims = c(-2.5,2.5),ybreaks=c(-2,-1,0,1,2),title="")
+assign(paste0("p",i),p)
+i <- i+1
+}
+
+png("~/Dropbox/mTurk/Figure8.png", width = 1500, height = 400)
+cowplot::plot_grid(p1,p2,p3,p4,nrow=1)
+dev.off()
+# plot SC bins?
+```
+
+## average kcals of reference item do not vary by demographic group
+
+
+```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE,include=FALSE}
+# diffs in ref food kcal by demo chars
+form <- paste0("neut.Total.kcal ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod)) %>% print_md()
+```
+
+
+## here are the DDM outputs for the best-fitting model
+
+# additional info is that non-decision time and choice bounds (evidence needed to make choice) are larger for older adults, smaller for those w. greater restraint (maybe indexing easier selection of healthier choice). weights of health and taste on choice are consistent with findings above.
+
+##table summarizing choices, RTs, healthy choices, H/L fat
+
+```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE}
+cat("\n\n\\newpage\n")
+tv_ests <- read.csv("~/Dropbox/mTurk/DDMparams_fitted.csv")[-c(1:7),]
+tv_ests$n <- stringr::str_split_i(tv_ests$X,"\\[",2)
+tv_ests$n <- gsub("]","",tv_ests$n,fixed=TRUE)
+tv_ests$X <- stringr::str_split_i(tv_ests$X,"\\[",1)
+wide_ests <- tv_ests %>% pivot_wider(n,names_from="X",values_from="Mean")
+
+
+subs <- read.csv("~/Dropbox/mTurk/DDM_sublist.csv")
+wide_ests$sub <- subs$subjectId
+
+wide_ests <- merge(single, wide_ests,by.x="subjectId",by.y="sub")
+preds <- c("gender", "age2", "bmi", "s.cognitive.restraint")
+outcomes <- c("b1.p","b2.p","b3.p","time_health.p","alpha.p","theta.p","bias")
+
+wide_ests$time_health.p <- wide_ests$time_health.p*1000
+#wide_ests$time_health.p <- abs(wide_ests$time_health.p)
+
+TV <- data.frame()
+for(out in outcomes){
+wide_ests$out <- wide_ests[[out]]
+m <- lm(out ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale+bmi_scale + income_scale + education_scale,wide_ests)# + income_scale + education_scale,tv_ests)
+print(paste0(out," ~ s.cognitive.restraint + bmi + age2 + gender"))
+print(model_parameters(m) %>% print_md())
+print(ggplot(wide_ests,aes(x=s.cognitive.restraint,y=out)) + geom_point()) + geom_smooth(method="lm")
+}
+
+
+```
+
+
+```{r}
+#Figures
+
+
+preds <- c("age2", "gender", "bmi","s.cognitive.restraint") #,"education","income")
+pred.names <- c("Age","Gender","BMI","Cognitive Restraint")
+colour <- c()
+colours <- c("sandybrown", "#92D895", "slateblue2", 
+            "#C9ADA7", "lightcoral")
+       
+
+outcomes <- c("b1.p", "b2.p", "time_health.p","alpha.p", "theta.p")
+outcome.names <- c("Tastiness Effect","Healthiness Effect","Delay of Healthiness relative to Tastiness and Umami", "Choice Boundary","Non-Decision Time")
+
+axislab <- c("Beta","Beta","Time (s)","Bound","NDT")
+limits <- list(c(0,1),c(-.5,.5),c(25,50),c(0,3),c(0,2))
+
+
+TAB_lm <- data.frame()
+i <- 1
+
+#
+for(out in outcomes){
+
+col_out <- colours[i]
+wide_ests$out <- wide_ests[[out]]
+ylims <- c(limits[[i]])
+y <- axislab[i]
+ybreaks=seq(ylims[1],ylims[2],(ylims[2]-ylims[1])/4)
+title <-outcome.names[i]
+j <- 1
+
+for(pred in preds){
+
+
+if(i ==1){tit=title}
+  else{tit=""}
+cat("\n\n\\newpage\n")
+
+wide_ests$pred <- wide_ests[[pred]]
+predname <- pred.names[j]
+
+p <- plot_template(dataset = wide_ests,pred = pred,out=out,col_out = col_out,title=title,xlabel = predname,ylims=ylims,ybreaks=ybreaks,yname=y)
+assign(paste0("p",j),p)
+j <- j+1
+}
+assign(paste0("plot",i),cowplot::plot_grid(p1,p2,p3,p4,nrow=1))
+i <- i+1
+}
+
+i <- 1
+for(out in outcomes){
+p <- ggplot() + 
+  annotate("text", x = 6, y = 25, size=12, label = outcome.names[[i]],color=colours[i],fontface =2) +
+  theme_void()
+assign(paste0(out,"_p"),p)
+i <- i+1
+}
+#title <- cowplot::plot_grid(,nrow=1)
+
+##int 
+png("~/Dropbox/mTurk/Figure11_p1.png", width = 2000, height = 1500)
+cowplot::plot_grid(b1.p_p,plot1,b2.p_p,plot2,time_health.p_p,plot3, nrow=6,rel_heights =c(0.1,1,0.1,1,0.1,1))
+dev.off()
+
+
+png("~/Dropbox/mTurk/Figure11_p2.png", width = 2000, height = 1000)
+cowplot::plot_grid(alpha.p_p,plot4,theta.p_p,plot5, nrow=4,rel_heights =c(0.1,1,0.1,1))
+dev.off()
+
+```

@@ -1,0 +1,298 @@
+---
+title: "mTurk_Main_Analyses_updated_full_models"
+output:
+  rmarkdown::pdf_document:
+    extra_dependencies: ["float"]
+    #fig_caption: yes        
+#   includes:  
+#      in_header: preamble.tex
+header-includes:
+ \usepackage{placeins}
+ \usepackage{array}
+ \usepackage{longtable}
+ \usepackage{wrapfig}
+ \usepackage{float}
+ \floatplacement{figure}{H}
+  # \newcommand\textstyleStrongEmphasis[1]{\textbf{#1}}
+  # \makeatletter
+  # \newcommand\arraybslash{\let\\\@arraycr}
+---
+
+```{r, include=FALSE}
+rm(list=ls())
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "!H", out.extra = "")
+
+```
+
+
+
+```{r, include=FALSE}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(lmerTest)
+library(lme4)
+library(readxl)
+library(cowplot)
+library(data.table)
+library(readxl)
+library(matrixTests)
+library(ggpubr)
+library(rstatix)
+library(afex)
+library(emmeans)
+library(forcats)
+library(sjPlot)
+library(polycor)
+library(parameters)
+library(knitr)
+library(psych)
+library(interactions)
+library(ggrepel)
+library(car)
+library(ppcor)
+library(GGally)
+```
+
+
+## These analyses describe the demographic characteristics associated with variation in food choice
+
+## Demographic characteristics of interest are: age, gender, income, cognitive restraint, BMI.
+
+# Read data in and do some recoding using cleanup script
+```{r, include=FALSE}
+dat <- read.csv("~/Dropbox/mTurk/mTURK_July2025.csv")
+source("~/Dropbox/mTurk/cleanup1.R")
+dat <- subset(dat,!is.na(dat$education))
+t <- subset(t,!is.na(t$education))
+```
+
+
+## Associations of dieting, exercise and weight suppression
+```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE}
+weight <- read.csv("~/Dropbox/mTurk/weight_info.csv")
+weight <- subset(weight, weight$subjectId %in% single$subjectId)
+weight$suppression <- ((weight$weight.kg.highest-weight$weight.kg ))
+weight <- weight[,c("subjectId","suppression")]
+single <- merge(single,weight,by="subjectId")
+single$exercise_numeric <- dplyr::recode(single$exercise, "Every day"=5,"Never"=0, "Once per week"=3, "Rarely"=1,"Several times per month"=2,"Several times per week"=4)
+single$stress_numeric <- dplyr::recode(single$life.stressful, "Extremely"=4,"Not at all"=0, "Very"=3, "A little"=1,"Somewhat"=2)
+single$suppression[single$subjectId=="SCP-15_0073"] <- NA
+single %>%
+dplyr::select(dieting,exercise_numeric, stress_numeric, suppression) %>% 
+GGally::ggpairs()
+cat("\n\n\\newpage\n")
+```
+
+# Now, how does dieting and weight suppression relate to the main variables of interest
+```{r, results="asis", warnings=FALSE, message=FALSE, echo=FALSE}
+
+demo <- single %>%
+dplyr::select(subjectId, age2, gender_num, bmi, s.cognitive.restraint,dieting,exercise_numeric,suppression,stress_numeric) %>% unique()
+demo <- demo[!duplicated(demo$subjectId),]
+create_correlation_table(single, colnames(demo[2:9])) %>%
+knitr::kable()
+
+
+```
+
+# Association between Healthiness and Umami
+```{r, echo=FALSE, results="asis", warnings=FALSE, message=FALSE}
+cat("\n\n\\newpage\n")
+
+labels <- c("kitkat","pizza","strawberries","lox","rice cakes","broccoli","trailmix","skittles")
+avg <- dat %>% group_by(stimulus) %>% summarize_at(c("choice.rating","Healthiness","Tastiness","Umami"),mean,na.rm=TRUE)
+
+avg$label <- ifelse(avg$stimulus %in% labels, avg$stimulus,"")
+
+p <- ggplot(avg, aes(x=Umami,y=Healthiness)) +  geom_point(size=4,color="bisque4",fill="bisque4",alpha=0.4) + geom_smooth(method="lm",formula="y ~ x + I(x^2)",size=2,color="bisque4",fill="bisque4",alpha=0.4) +  geom_text(aes(label=label),size = 6, fontface = "bold")
+
+ph <- p + theme_blank() + theme(axis.line.x=element_line(color="black",size=2),axis.line.y=element_line(color="black",size=2),axis.title = element_text(color="black", size=24,face="bold",hjust = .5),axis.text=element_text(color="black", size=24))
+
+
+fit_uh <- lmer(Healthiness ~  Umami + Tastiness + (1|stimulus) + (1 +  Umami + Tastiness |subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+fit_uh_quad <- lmer(Healthiness ~ Tastiness +  Umami + I(Umami^2) + (1|stimulus) + (1 + Tastiness +  Umami + I(Umami^2)|subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+
+fit_uh_quad <- lmer(Healthiness ~   Umami + I(Umami^2) + (1|stimulus) + (1 + Tastiness +  Umami + I(Umami^2)|subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+cat("\n\n\\newpage\n")
+
+print("compare models with and without the quadratic terms - we need linear and quadratic effects here")
+model_parameters(fit_uh,effects="fixed") %>% print_md()
+model_parameters(fit_uh_quad,effects="fixed") %>% print_md()
+anova(fit_uh,fit_uh_quad) %>% print_md()
+
+
+```
+
+
+
+```{r, echo = FALSE}
+
+# mean health and taste ratings
+res <- data.frame()
+fat <- Obj_info[,c("stimulus","HI_LO_fat")]
+dat <- merge(dat,fat,by="stimulus")
+means <- dat %>% dplyr::group_by(subjectId,HI_LO_fat) %>% dplyr::summarize_at(c("Tastiness","Healthiness","Umami"),c(mean)) %>% pivot_wider(1,names_from=2,values_from = 3:5)
+colnames(means) <- gsub(0,"lowfat",colnames(means))
+colnames(means) <- gsub(1,"hifat",colnames(means))
+means$Total_Healthiness <- means$Healthiness_lowfat + means$Healthiness_hifat
+means$Total_Tastiness <- means$Tastiness_lowfat + means$Tastiness_hifat
+means$Total_Umami <- means$Umami_lowfat + means$Umami_hifat
+single <- merge(single,means,by="subjectId")
+
+means_foods <- dat %>% 
+    dplyr::group_by(HI_LO_fat) %>% 
+    dplyr::summarize(across(c("Tastiness","Healthiness","Umami"), 
+                            list(mean = mean, se = ~sd(.)/sqrt(length(.))),
+                            .names = "{.col}_{.fn}")) %>%
+    pivot_longer(cols = -HI_LO_fat, 
+                 names_to = c("variable", "stat"), 
+                 names_sep = "_",
+                 values_to = "value") %>%
+  pivot_wider(names_from = c("stat"), 
+              values_from = "value",
+              names_sep = "_")
+
+png("~/Dropbox/mTurk/FigureS4.png", width = 1500, height = 1200)
+p <- ggplot(means_foods, aes(x=variable, y=mean, color=as.factor(HI_LO_fat), fill=as.factor(HI_LO_fat))) + 
+    geom_bar(stat = "identity", position=position_dodge(width = 1)) + 
+    geom_errorbar(aes(ymin=mean-se, ymax=mean+se), position=position_dodge(width=1), color="black",size=1,width=0.5) + 
+    scale_color_manual(values = c("#440154", "#21908c"), name = "Fat Content", labels = c("Low Fat", "High Fat")) +
+    scale_fill_manual(values = c("#440154", "#21908c"), name = "Fat Content", labels = c("Low Fat", "High Fat")) +
+    theme_blank() + ylab("Mean rating") +
+    theme(axis.line.x=element_line(color="black",size=1),
+          axis.line.y=element_line(color="black",size=1),
+          axis.text = element_text(size=30),
+          axis.title = element_text(size=30),legend.text =  element_text(size=20),
+          plot.title = element_text(color=col_out, size=30,face="bold",hjust = .5),
+          legend.title = element_blank(),
+          legend.position=c(.9,0.1),
+          legend.key.size = unit(5,"line"))
+p
+dev.off()
+```
+
+
+```{r}
+
+print("full model - healthy choices")
+form <- paste0("prop.h.f ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+form <- paste0("prop.l.f ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+```
+
+
+## association between food knowledge, average ratings (healthy, tasty) and demo chars
+```{r,echo=FALSE}
+corrs <- single %>% dplyr::select(starts_with("corr")) %>% dplyr::select(ends_with("_pct"),ends_with("kcal"),-ends_with("correlation_fat_Healthiness_g")) %>% colnames()
+sapply(single[,corrs],mean)
+res <- data.frame()
+preds <- c("age2","gender","bmi","s.cognitive.restraint")
+pred.names <- c("Age (years)","Gender","BMI (kg/m^2)","Cognitive Restraint")
+cols <- c("#440154FF","#414487FF","#2A788EFF", "#7AD151FF","#FDE725FF")
+
+res <- data.frame()
+for(out in c(corrs)){
+outcome <- out
+form <- paste0(out, " ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(out)
+print(model_parameters(mod) %>% print_md())
+
+m <- summary(mod)$coefficients[2:7,]
+FR <- data.frame(m)
+FR$out <- out
+FR$var <- c(rownames(m))
+res <- rbind(res,FR)
+title <-outcome.names[j]
+}
+
+res$ci <- paste0(round(res$Estimate,2)," [",round(res$Estimate-1.96*res$Std..Error),",",round(res$Estimate+1.96*res$Std..Error,2),"]")
+
+i <- 1
+titles <- c("fat","protein","carbohydrate","sugar","calorie")
+for(out in c(corrs)){
+single$out <- single[[out]]
+
+j <- 1
+for(pred in preds){
+predname <- pred.names[j]
+single$pred <- single[[pred]]
+col_out <- cols[i]
+
+cat("\n\n\\newpage\n")
+
+ylims <- c(-0.5,1)
+ybreaks=seq(-0.6,1.0,0.2)
+ybreaks=round(ybreaks,2)
+y <- "Correlation (r)"
+p <- plot_template(dataset = single,pred = pred,out=out,col_out = col_out,title="",xlabel = predname,ylims=ylims,ybreaks=ybreaks,yname=y)
+assign(paste0("p",j),p)
+p <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=12, label =paste0("Correlation between objective and rated ", titles[[i]]," content"),color=col_out,fontface =2) + 
+  theme_void()
+assign(paste0(titles[i],"_p"),p)
+j <- j+1
+
+}
+assign(paste0("plot",i),cowplot::plot_grid(p1,p2,p3,p4,nrow=1))
+i <- i+1
+}
+
+png("~/Dropbox/mTurk/FigureS3.png", width = 1600, height = 2000)
+cowplot::plot_grid(fat_p,plot1,protein_p,plot2,carbohydrate_p,plot3,sugar_p,plot4,calorie_p,plot5,nrow=10,rel_heights =c(0.2,1,0.2,1,0.2,1,0.2,1))
+dev.off()
+
+
+```
+
+```{r}
+form <- paste0("neut.Total.kcal ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+```
+
+```{r, results="asis", warnings=FALSE, message=FALSE}
+cat("\n\n\\newpage\n")
+tv_ests <- read.csv("~/Dropbox/mTurk/DDMparams_fitted.csv")[-c(1:7),]
+tv_ests$n <- stringr::str_split_i(tv_ests$X,"\\[",2)
+tv_ests$n <- gsub("]","",tv_ests$n)
+tv_ests$X <- stringr::str_split_i(tv_ests$X,"\\[",1)
+tv_ests <- tv_ests %>% pivot_wider(n,names_from="X",values_from="Mean")
+
+rec_ests <- read.csv("~/Dropbox/mTurk/DDMparams_recovery.csv")[-c(1:7),]
+rec_ests$n <- stringr::str_split_i(rec_ests$X,"\\[",2)
+rec_ests$n <- gsub("]","",rec_ests$n)
+rec_ests$X <- stringr::str_split_i(rec_ests$X,"\\[",1)
+rec_ests <- rec_ests %>% pivot_wider(n,names_from="X",values_from="Mean")
+
+R <- data.frame()
+outcomes <- c("b1.p","b2.p","b3.p","alpha.p","theta.p","bias")
+for(out in outcomes){
+    row <- (cor.test(as.numeric(tv_ests[[out]]),as.numeric(rec_ests[[out]])))
+    r <- c(out,row$estimate[[1]])
+    R <- rbind(R,r)
+    name1=paste0("generative_",out)
+    name2=paste0("recovered_",out)
+    fr <- data.frame(name1=as.numeric(tv_ests[[out]]),name2=as.numeric(rec_ests[[out]]))
+    colnames(fr) <- c(name1,name2)
+    print(ggplot(fr,aes_string(x=name1,y=name2)) + geom_point() + geom_smooth(method="lm"))
+}
+
+```
+
+
+
