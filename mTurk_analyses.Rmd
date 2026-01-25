@@ -63,7 +63,7 @@ library(ggrain)
 
 ```{r, include=FALSE}
 dat <- read.csv("~/Dropbox/mTurk/mTURK_July2025.csv")
-source("~/Dropbox/mTurk/cleanup1.R")
+source("~/Dropbox/mTurk/cleanup.R")
 dat <- subset(dat,!is.na(dat$education))
 t <- subset(t,!is.na(t$education))
 ```
