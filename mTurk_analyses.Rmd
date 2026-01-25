@@ -62,8 +62,8 @@ library(ggrain)
 
 
 ```{r, include=FALSE}
-dat <- read.csv("~/Dropbox/mTurk/mTURK_July2025.csv")
-source("~/Dropbox/mTurk/cleanup.R")
+dat <- read.csv("mTURK_July2025.csv")
+source("cleanup.R")
 dat <- subset(dat,!is.na(dat$education))
 t <- subset(t,!is.na(t$education))
 ```
@@ -919,14 +919,14 @@ print(model_parameters(mod)) %>% print_md()
 
 ```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE}
 cat("\n\n\\newpage\n")
-tv_ests <- read.csv("~/Dropbox/mTurk/DDMparams_fitted.csv")[-c(1:7),]
+tv_ests <- read.csv("DDMparams_fitted.csv")[-c(1:7),]
 tv_ests$n <- stringr::str_split_i(tv_ests$X,"\\[",2)
 tv_ests$n <- gsub("]","",tv_ests$n,fixed=TRUE)
 tv_ests$X <- stringr::str_split_i(tv_ests$X,"\\[",1)
 wide_ests <- tv_ests %>% pivot_wider(n,names_from="X",values_from="Mean")
 
 
-subs <- read.csv("~/Dropbox/mTurk/DDM_sublist.csv")
+subs <- read.csv("DDM_sublist.csv")
 wide_ests$sub <- subs$subjectId
 
 wide_ests <- merge(single, wide_ests,by.x="subjectId",by.y="sub")
