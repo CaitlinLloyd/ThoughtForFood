@@ -66,7 +66,7 @@ library(GGally)
 
 # Read data in and do some recoding using cleanup script
 ```{r, include=FALSE}
-dat <- read.csv("~/Dropbox/mTurk/mTURK_July2025.csv")
+dat <- read.csv("mTURK_July2025.csv")
 source("~/Dropbox/mTurk/cleanup1.R")
 dat <- subset(dat,!is.na(dat$education))
 t <- subset(t,!is.na(t$education))
@@ -75,7 +75,7 @@ t <- subset(t,!is.na(t$education))
 
 ## Associations of dieting, exercise and weight suppression
 ```{r, echo = FALSE, results="asis", warnings=FALSE, message=FALSE}
-weight <- read.csv("~/Dropbox/mTurk/weight_info.csv")
+weight <- read.csv("weight_info.csv")
 weight <- subset(weight, weight$subjectId %in% single$subjectId)
 weight$suppression <- ((weight$weight.kg.highest-weight$weight.kg ))
 weight <- weight[,c("subjectId","suppression")]
@@ -267,13 +267,13 @@ print(model_parameters(mod) %>% print_md())
 
 ```{r, results="asis", warnings=FALSE, message=FALSE}
 cat("\n\n\\newpage\n")
-tv_ests <- read.csv("~/Dropbox/mTurk/DDMparams_fitted.csv")[-c(1:7),]
+tv_ests <- read.csv("DDMparams_fitted.csv")[-c(1:7),]
 tv_ests$n <- stringr::str_split_i(tv_ests$X,"\\[",2)
 tv_ests$n <- gsub("]","",tv_ests$n)
 tv_ests$X <- stringr::str_split_i(tv_ests$X,"\\[",1)
 tv_ests <- tv_ests %>% pivot_wider(n,names_from="X",values_from="Mean")
 
-rec_ests <- read.csv("~/Dropbox/mTurk/DDMparams_recovery.csv")[-c(1:7),]
+rec_ests <- read.csv("DDMparams_recovery.csv")[-c(1:7),]
 rec_ests$n <- stringr::str_split_i(rec_ests$X,"\\[",2)
 rec_ests$n <- gsub("]","",rec_ests$n)
 rec_ests$X <- stringr::str_split_i(rec_ests$X,"\\[",1)
