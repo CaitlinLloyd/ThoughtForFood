@@ -1,0 +1,97 @@
+model {
+
+    # Mean estimates of the linear regressions
+        b1.mu ~ dnorm(0, 1) # td: taste
+        b2.mu ~ dnorm(0, 1) # hd: health
+        b3.mu ~ dnorm(0, 1) # pd: umami
+
+    # Taste timing parameter: positive = taste delayed, negative = taste comes first
+        time_taste.mu ~ dnorm(0, 1)     # taste onset relative to health and umami
+
+	# precisions for the linear regression estimates
+        b1.pr ~ dgamma(1, 0.1)
+        b2.pr ~ dgamma(1, 0.1)
+        b3.pr ~ dgamma(1, 0.1)
+
+    # precision for taste timing parameter
+        time_taste.pr ~ dgamma(1, 0.01)
+
+	# mean estimates DDM parameters
+        alpha.mu ~ dunif(0.001, 5) # boundary
+        theta.mu ~ dunif(0, 10) # non decision times
+
+	# Error terms for nDT
+        alpha.pr ~ dgamma(1, 0.1)
+        theta.pr ~ dgamma(1, 0.1)
+
+    # error term for the regression function
+        e.sG <- pow(e.m,2) / pow(e.d,2)
+        e.rG <- e.m / pow(e.d,2)
+        e.m ~ dgamma(1,0.2)T(0.001,20)
+        e.d ~ dgamma(1,0.5)T(0.001,20)
+
+    # Bias of the DDM
+        bias.alpha <- bias.mu * bias.kappa
+        bias.beta <- (1 - bias.mu) * bias.kappa
+        bias.mu ~ dbeta(2, 2)T(0.01,0.99)
+        bias.kappa ~ dgamma(1, 0.5)
+
+    for (p in 1:ns) { # subject level
+        e.p.tau[p] ~ dgamma(e.sG, e.rG)T(0.001,20)
+        theta.p[p] ~ dnorm(theta.mu, theta.pr)
+        bias[p] ~ dbeta(bias.alpha, bias.beta)T(0.01,0.99)
+
+        b1.p[p] ~ dnorm(b1.mu, b1.pr)
+        b2.p[p] ~ dnorm(b2.mu, b2.pr)
+        b3.p[p] ~ dnorm(b3.mu, b3.pr)
+
+        # Subject-level taste timing parameter
+        time_taste.p[p] ~ dnorm(time_taste.mu, time_taste.pr)
+
+        alpha.p[p] ~ dnorm(alpha.mu, alpha.pr)
+    }
+
+    for (i in 1:N) { # trial level
+        y[i] ~ dwiener(bound[i] , tau[i], bet[i], w[i])
+
+        # generate predictions
+        y_pred[i] ~ dwiener(bound[i] , tau[i], bet[i], w[i])
+
+        # generate likelihood
+        log_lik[i] <- dlogwiener(y[i], bound[i], tau[i], bet[i], w[i])
+
+        # generate trial-by-trial boundary
+        bound[i] <- alpha.p[idxP[i]]
+
+        # generate trial-by-trial nDT
+        tau[i] <- theta.p[idxP[i]]
+        dT[i] <- rt[i] - tau[i]
+
+        # generate trial-by-trial Bias
+        bet[i] <- bias[idxP[i]]
+
+        # The actual drift rate
+        w[i] ~ dnorm(li.hat[i], e.p.tau[ idxP[i] ])
+
+        # Taste timing: positive = taste delayed, negative = taste comes first
+        time_t[i] <- time_taste.p[idxP[i]]
+        timeIn_t[i] <- abs(time_t[i])
+        f_t[i] <- step(time_t[i])  # 1 if time_t >= 0 (taste delayed), 0 if time_t < 0 (taste comes first)
+        timeStep_t[i] <- (dT[i] - timeIn_t[i])/dT[i]
+        smaller_t[i] <- step(timeStep_t[i])
+
+        # Time-varying drift rate components
+        # When f_t[i] = 0 (time_t < 0): taste comes first, health/umami delayed
+        # When f_t[i] = 1 (time_t >= 0): taste delayed, health/umami active from t=0
+        li.hat_h[i] <- f_t[i] * vd_h[i] + (1-f_t[i]) * (smaller_t[i] * timeStep_t[i] * vd_h[i])
+        li.hat_p[i] <- f_t[i] * vd_p[i] + (1-f_t[i]) * (smaller_t[i] * timeStep_t[i] * vd_p[i])
+        li.hat_t[i] <- (1-f_t[i]) * vd_t[i] + f_t[i] * (smaller_t[i] * timeStep_t[i] * vd_t[i])
+
+        li.hat[i] <- li.hat_t[i] + li.hat_h[i] + li.hat_p[i]
+
+        # The linear regression of the value probabilities and value magnitude
+        vd_t[i] <-  (b1.p[ idxP[i] ] * td[i]) # taste
+        vd_h[i] <-  (b2.p[ idxP[i] ] * hd[i]) # health
+        vd_p[i] <-  (b3.p[ idxP[i] ] * pd[i]) # umami
+    }
+}
