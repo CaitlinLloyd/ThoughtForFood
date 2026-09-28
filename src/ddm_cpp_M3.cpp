@@ -45,12 +45,15 @@ struct ddm2w : public Worker {
   // function call operator that work for the specified range (begin/end)
   void operator()(std::size_t begin, std::size_t end) {
 
-    double T = 5.2, dt = 0.001, lt;
+    double T = 8, dt = 0.001, lt;
     lt = (int)(T/dt);
 
     std::vector<double> vec_tHealth(lt,1);
     std::vector<double> vec_tVal(lt,1);
-    int aux = std::abs((int)(tIn/dt));
+    // Cap the time-varying (tv) delay parameter's effect at the trial horizon lt:
+    // a delay longer than the whole simulated trial just means that attribute
+    // never turns on, which capping aux here already produces correctly.
+    int aux = std::min(std::abs((int)(tIn/dt)), (int)lt);
 
 
 
@@ -95,13 +98,13 @@ struct ddm2w : public Worker {
 
 
 // [[Rcpp::export]]
-NumericVector ddm2_parallel(double d_v, double d_h, double thres, double nDT, double tIn, double bias, double vd, double hd, double sd_n, unsigned int N) {
+NumericVector ddm2_parallel(double d_v, double d_h, double thres, double nDT, double tIn, double bias, double vd, double hd, double sd_n, unsigned int N, unsigned int seed) {
 
   //const double sd_n = 1.4;
-  struct timespec time;
-  clock_gettime(CLOCK_REALTIME, &time);
+  // Seed supplied from R (see set.seed / seeds vector in the calling script) so
+  // runs are reproducible; previously seeded from clock_gettime, which was not.
   ENG  eng;
-  eng.seed(time.tv_nsec);
+  eng.seed(seed);
   DIST dist(0,sd_n);
   GEN  gen(eng,dist);
 

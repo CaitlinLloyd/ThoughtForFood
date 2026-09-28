@@ -48,7 +48,7 @@ struct ddm3hw : public Worker {
   // function call operator that work for the specified range (begin/end)
   void operator()(std::size_t begin, std::size_t end) {
 
-    double T = 5.2, dt = 0.001, lt;
+    double T = 8, dt = 0.001, lt;
     lt = (int)(T/dt);
 
     // Initialize timing vectors - umami and taste are always active from t=0
@@ -113,13 +113,13 @@ struct ddm3hw : public Worker {
 };
 
 // [[Rcpp::export]]
-NumericVector ddm3h_parallel(double d_v, double d_h, double d_p, double thres, double nDT, double bias, 
-                           double vd, double hd, double pd, double sd_n, double tIn_h, unsigned int N) {
+NumericVector ddm3h_parallel(double d_v, double d_h, double d_p, double thres, double nDT, double bias,
+                           double vd, double hd, double pd, double sd_n, double tIn_h, unsigned int N, unsigned int seed) {
 
-  struct timespec time;
-  clock_gettime(CLOCK_REALTIME, &time);
+  // Seed supplied from R (see set.seed / seeds vector in the calling script) so
+  // runs are reproducible; previously seeded from clock_gettime, which was not.
   ENG  eng;
-  eng.seed(time.tv_nsec);
+  eng.seed(seed);
   DIST dist(0, sd_n);
   GEN  gen(eng, dist);
 
