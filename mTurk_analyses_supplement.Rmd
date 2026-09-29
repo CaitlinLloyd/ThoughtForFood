@@ -1,0 +1,262 @@
+---
+title: "mTurk_Main_Analyses_updated_full_models"
+output:
+  rmarkdown::pdf_document:
+    extra_dependencies: ["float"]
+    #fig_caption: yes        
+#   includes:  
+#      in_header: preamble.tex
+header-includes:
+ \usepackage{placeins}
+ \usepackage{array}
+ \usepackage{longtable}
+ \usepackage{wrapfig}
+ \usepackage{float}
+ \floatplacement{figure}{H}
+  # \newcommand\textstyleStrongEmphasis[1]{\textbf{#1}}
+  # \makeatletter
+  # \newcommand\arraybslash{\let\\\@arraycr}
+---
+
+```{r, include=FALSE}
+rm(list=ls())
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "!H", out.extra = "")
+
+```
+
+
+
+```{r, include=FALSE}
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+library(lmerTest)
+library(lme4)
+library(readxl)
+library(cowplot)
+library(data.table)
+library(readxl)
+library(matrixTests)
+library(ggpubr)
+library(rstatix)
+library(afex)
+library(emmeans)
+library(forcats)
+library(sjPlot)
+library(polycor)
+library(parameters)
+library(knitr)
+library(psych)
+library(interactions)
+library(ggrepel)
+library(car)
+library(ppcor)
+library(GGally)
+```
+
+
+## These analyses describe the demographic characteristics associated with variation in food choice
+
+## Demographic characteristics of interest are: age, gender, income, cognitive restraint, BMI.
+
+# Read data in and do some recoding using cleanup script
+```{r, include=FALSE}
+dat <- read.csv("mTURK_July2025.csv")
+source("cleanup.R")
+dat <- subset(dat,!is.na(dat$education))
+t <- subset(t,!is.na(t$education))
+
+ggplot(dat,aes(x=choice.rating,y=choice.rt.unscale)) + geom_bar(stat="identity")
+```
+
+# First, look at how the demographic factors of interest are related to each other
+```{r, results="asis", warnings=FALSE, message=FALSE, echo=FALSE}
+demo <- t %>%
+dplyr::select(subjectId, age2, gender, bmi, s.cognitive.restraint,income,education) %>% unique()
+
+demo <- demo[!duplicated(demo$subjectId),]
+create_correlation_table(t, colnames(demo[2:7])) %>%
+knitr::kable()
+
+```
+
+
+
+# Association between Healthiness and Umami
+```{r, echo=FALSE, results="asis", warnings=FALSE, message=FALSE}
+cat("\n\n\\newpage\n")
+
+labels <- c("kitkat","pizza","strawberries","lox","rice cakes","broccoli","trailmix","skittles")
+
+# per-food averages (this script runs standalone, so build `avg` here rather than
+# relying on it being left in the environment by mTurk_analyses.Rmd)
+avg <- dat %>% group_by(stimulus) %>%
+  summarize_at(c("choice.rating","Healthiness","Tastiness","Umami"), mean, na.rm=TRUE)
+avg$label <- ifelse(avg$stimulus %in% labels, avg$stimulus,"")
+
+p <- ggplot(avg, aes(x=Umami,y=Healthiness)) +  geom_point(size=4,color="bisque4",fill="bisque4",alpha=0.4) + geom_smooth(method="lm",formula="y ~ x + I(x^2)",size=2,color="bisque4",fill="bisque4",alpha=0.4) +  geom_text(aes(label=label),size = 6, fontface = "bold")
+
+ph <- p + theme_blank() + theme(axis.line.x=element_line(color="black",size=2),axis.line.y=element_line(color="black",size=2),axis.title = element_text(color="black", size=24,face="bold",hjust = .5),axis.text=element_text(color="black", size=24))
+
+
+fit_uh <- lmer(Healthiness ~  Umami + Tastiness + (1|stimulus) + (1 +  Umami + Tastiness |subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+fit_uh_quad <- lmer(Healthiness ~ Tastiness +  Umami + I(Umami^2) + (1|stimulus) + (1 + Tastiness +  Umami + I(Umami^2)|subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+
+fit_uh_quad <- lmer(Healthiness ~   Umami + I(Umami^2) + (1|stimulus) + (1 + Tastiness +  Umami + I(Umami^2)|subjectId), data=dat, control=lmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+
+cat("\n\n\\newpage\n")
+
+print("compare models with and without the quadratic terms - we need linear and quadratic effects here")
+model_parameters(fit_uh,effects="fixed") %>% print_md()
+model_parameters(fit_uh_quad,effects="fixed") %>% print_md()
+anova(fit_uh,fit_uh_quad) %>% print_md()
+
+png("results/FigureS1.png", width = 1600, height = 2000)
+cowplot::plot_grid(ph)
+dev.off()
+
+```
+
+
+#Compare effects with/without SES and hunger
+```{r}
+form <- paste0("choice.bin ~  (1+ Healthiness + Tastiness + (Umami )| subjectId) + Healthiness*age2_scale+Healthiness*gender_num_scale + Healthiness*income_scale +  Tastiness*income_scale  +  Tastiness*education_scale + Healthiness*education_scale + Umami*education_scale +
+Umami*income_scale  + Umami*age2_scale+Umami*gender_num_scale + Tastiness*s.cognitive.restraint_scale*bmi_scale + Umami*s.cognitive.restraint_scale*bmi_scale+ Tastiness*age2_scale+Tastiness*gender_num_scale  +  Healthiness*s.cognitive.restraint_scale*bmi_scale + (1|stimulus)")
+
+mod_full_int <- glmer(form,data=dat, family="binomial", control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(parameters::model_parameters(mod_full_int) %>% print_md())
+
+form <- paste0("choice.bin ~  (1+ Healthiness + Tastiness + (Umami )| subjectId) + Healthiness*age2_scale+Healthiness*gender_num_scale + Healthiness*income_scale +  Tastiness*income_scale  +  Tastiness*education_scale + Healthiness*education_scale + Umami*education_scale +
+Umami*income_scale  + Umami*age2_scale+Umami*gender_num_scale + Tastiness*s.cognitive.restraint_scale*bmi_scale + Umami*s.cognitive.restraint_scale*bmi_scale+ Tastiness*age2_scale+Tastiness*gender_num_scale  +  Healthiness*s.cognitive.restraint_scale*bmi_scale + Tastiness*hunger.time1.rating + Healthiness*hunger.time1.rating + Umami*hunger.time1.rating + (1|stimulus)")
+
+mod_full_int <- glmer(form,data=dat, family="binomial", control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e5), calc.derivs = FALSE))
+print(parameters::model_parameters(mod_full_int) %>% print_md())
+
+```
+
+
+```{r}
+
+print("full model - healthy choices")
+form <- paste0("prop.h.f ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+form <- paste0("prop.l.f ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+
+```
+
+
+## association between food knowledge, average ratings (healthy, tasty) and demo chars
+```{r,echo=FALSE}
+corrs <- single %>% dplyr::select(starts_with("corr")) %>% dplyr::select(ends_with("_pct"),ends_with("kcal"),-ends_with("correlation_fat_Healthiness_g")) %>% colnames()
+sapply(single[,corrs],mean)
+res <- data.frame()
+preds <- c("age2","gender","bmi","s.cognitive.restraint")
+pred.names <- c("Age (years)","Gender","BMI (kg/m^2)","Cognitive Restraint")
+cols <- c("#440154FF","#414487FF","#2A788EFF", "#7AD151FF","#FDE725FF")
+
+res <- data.frame()
+for(out in c(corrs)){
+outcome <- out
+form <- paste0(out, " ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(out)
+print(model_parameters(mod) %>% print_md())
+
+m <- summary(mod)$coefficients[2:7,]
+FR <- data.frame(m)
+FR$out <- out
+FR$var <- c(rownames(m))
+res <- rbind(res,FR)
+}
+
+res$ci <- paste0(round(res$Estimate,2)," [",round(res$Estimate-1.96*res$Std..Error,2),",",round(res$Estimate+1.96*res$Std..Error,2),"]")
+
+i <- 1
+titles <- c("fat","protein","carbohydrate","sugar","calorie")
+for(out in c(corrs)){
+single$out <- single[[out]]
+
+j <- 1
+for(pred in preds){
+predname <- pred.names[j]
+single$pred <- single[[pred]]
+col_out <- cols[i]
+
+cat("\n\n\\newpage\n")
+
+ylims <- c(-0.5,1)
+ybreaks=seq(-0.6,1.0,0.2)
+ybreaks=round(ybreaks,2)
+y <- "Correlation (r)"
+p <- plot_template(dataset = single,pred = pred,out=out,col_out = col_out,title="",xlabel = predname,ylims=ylims,ybreaks=ybreaks,yname=y)
+assign(paste0("p",j),p)
+p <- ggplot() + 
+  annotate("text", x = 4, y = 25, size=12, label =paste0("Correlation between objective and rated ", titles[[i]]," content"),color=col_out,fontface =2) + 
+  theme_void()
+assign(paste0(titles[i],"_p"),p)
+j <- j+1
+
+}
+assign(paste0("plot",i),cowplot::plot_grid(p1,p2,p3,p4,nrow=1))
+i <- i+1
+}
+
+png("results/FigureS6.png", width = 1600, height = 2000)
+cowplot::plot_grid(fat_p,plot1,protein_p,plot2,carbohydrate_p,plot3,sugar_p,plot4,calorie_p,plot5,nrow=10,rel_heights =c(0.2,1,0.2,1,0.2,1,0.2,1))
+dev.off()
+
+
+```
+```{r}
+form <- paste0("neut.Total.kcal ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale")
+mod <- lm(form, single)
+print(model_parameters(mod) %>% print_md())
+```
+
+```{r, results="asis", warnings=FALSE, message=FALSE}
+cat("\n\n\\newpage\n")
+tv_ests <- read.csv("summary_3fac_params.csv")[-c(1:6),]
+tv_ests$n <- stringr::str_split_i(tv_ests$X,"\\[",2)
+tv_ests$n <- gsub("]","",tv_ests$n)
+tv_ests$X <- stringr::str_split_i(tv_ests$X,"\\[",1)
+tv_ests <- tv_ests %>% pivot_wider(n,names_from="X",values_from="Mean")
+
+rec_ests <- read.csv("July_3fac_params_recovery.csv")[-c(1:6),]
+rec_ests$n <- stringr::str_split_i(rec_ests$X,"\\[",2)
+rec_ests$n <- gsub("]","",rec_ests$n)
+rec_ests$X <- stringr::str_split_i(rec_ests$X,"\\[",1)
+rec_ests <- rec_ests %>% pivot_wider(n,names_from="X",values_from="Mean")
+
+R <- data.frame()
+outcomes <- c("b1.p","b2.p","b3.p","alpha.p","theta.p","bias")
+for(out in outcomes){
+    row <- (cor.test(as.numeric(tv_ests[[out]]),as.numeric(rec_ests[[out]])))
+    r <- c(out,row$estimate[[1]])
+    R <- rbind(R,r)
+}
+colnames(rec_ests) <- paste0("sim_",colnames(rec_ests))
+tv_ests <- cbind(tv_ests,rec_ests)
+ggplot(tv_ests,aes(x=b3.p,y=sim_b3.p)) + geom_point()
+
+TV <- data.frame()
+for(out in outcomes){
+wide_ests$out <- wide_ests[[out]]
+m <- lm(out ~ gender_num_scale + age2_scale + s.cognitive.restraint_scale + bmi_scale + income_scale + education_scale,wide_ests)# + income_scale + education_scale,tv_ests)
+print(paste0(out," ~ s.cognitive.restraint + bmi + age2 + gender"))
+print(model_parameters(m) %>% print_md())
+}
+```
+
+
+
